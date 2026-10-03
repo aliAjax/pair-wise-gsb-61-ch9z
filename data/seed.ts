@@ -104,6 +104,7 @@ export const seedProjects: ApprovalProject[] = [
     evidence: [
       {
         id: 'EV-118-01',
+        logicalId: 'EV-118-01',
         projectId: 'TA-2026-118',
         regulationId: 'REG-BRAKE',
         name: '制动系统型式试验报告',
@@ -117,6 +118,7 @@ export const seedProjects: ApprovalProject[] = [
       },
       {
         id: 'EV-118-02',
+        logicalId: 'EV-118-02',
         projectId: 'TA-2026-118',
         regulationId: 'REG-SOFTWARE',
         name: '软件更新影响评估',
@@ -130,6 +132,7 @@ export const seedProjects: ApprovalProject[] = [
       },
       {
         id: 'EV-118-03',
+        logicalId: 'EV-118-03',
         projectId: 'TA-2026-118',
         regulationId: 'REG-LIGHT',
         name: '外部照明装置测试记录',
@@ -143,6 +146,7 @@ export const seedProjects: ApprovalProject[] = [
       },
       {
         id: 'EV-118-04',
+        logicalId: 'EV-118-04',
         projectId: 'TA-2026-118',
         regulationId: 'REG-BATTERY',
         name: '动力电池包安全测试报告',
@@ -212,6 +216,7 @@ export const seedProjects: ApprovalProject[] = [
     evidence: [
       {
         id: 'EV-109-01',
+        logicalId: 'EV-109-01',
         projectId: 'TA-2026-109',
         regulationId: 'REG-EMC',
         name: '整车电磁兼容报告',
@@ -225,6 +230,7 @@ export const seedProjects: ApprovalProject[] = [
       },
       {
         id: 'EV-109-02',
+        logicalId: 'EV-109-02',
         projectId: 'TA-2026-109',
         regulationId: 'REG-ENERGY',
         name: '能耗一致性证明材料',
@@ -278,6 +284,7 @@ export const seedProjects: ApprovalProject[] = [
     evidence: [
       {
         id: 'EV-092-01',
+        logicalId: 'EV-092-01',
         projectId: 'TA-2026-092',
         regulationId: 'REG-BRAKE',
         name: '制动系统批准报告',
@@ -331,6 +338,7 @@ export const seedProjects: ApprovalProject[] = [
     evidence: [
       {
         id: 'EV-120-01',
+        logicalId: 'EV-120-01',
         projectId: 'TA-2026-120',
         regulationId: 'REG-BATTERY',
         name: '电池包部件清单',

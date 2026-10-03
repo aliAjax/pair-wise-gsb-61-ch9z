@@ -1,19 +1,25 @@
 <script setup lang="ts">
 import { regulationCatalog } from '~/data/seed';
+import { deriveRegulations } from '~/services/batch-merge';
 import { useCertificationStore } from '~/stores/certification';
 
 const store = useCertificationStore();
 const selectedCategory = ref('全部');
 const selectedProjectId = ref('TA-2026-118');
 
+onMounted(() => store.hydrate());
+
 const categories = computed(() => ['全部', ...Array.from(new Set(regulationCatalog.map((item) => item.category)))]);
-const visible = computed(() =>
-  selectedCategory.value === '全部'
-    ? regulationCatalog
-    : regulationCatalog.filter((item) => item.category === selectedCategory.value)
-);
 const selectedProject = computed(() => store.projectById(selectedProjectId.value));
 const projectOptions = computed(() => store.projects.map((project) => ({ label: `${project.id} · ${project.name}`, value: project.id })));
+
+// 法规覆盖随证据软件版本、失效与两版冲突实算，不读静态目录
+const derivedRegulations = computed(() => (selectedProject.value ? deriveRegulations(selectedProject.value) : []));
+const visible = computed(() =>
+  selectedCategory.value === '全部'
+    ? derivedRegulations.value
+    : derivedRegulations.value.filter((item) => item.category === selectedCategory.value)
+);
 </script>
 
 <template>

@@ -9,9 +9,16 @@ const note = ref('');
 const message = ref('');
 const error = ref('');
 
+onMounted(() => {
+  store.hydrate();
+  if (!selectedProjectId.value && projectOptions.value[0]) selectedProjectId.value = projectOptions.value[0].value;
+});
+
+// 补件队列包含状态待补和软件基线变更后失效的证据，冻结项目不进入队列
 const projectOptions = computed(() =>
   store.projects
-    .filter((project) => project.evidence.some((evidence) => ['rejected', 'resubmit', 'missing'].includes(evidence.status)))
+    .filter((project) => project.status !== 'approved')
+    .filter((project) => store.pendingSupplements(project.id).length > 0)
     .map((project) => ({
       label: `${project.id} · ${project.name}`,
       value: project.id
@@ -19,9 +26,7 @@ const projectOptions = computed(() =>
 );
 
 const current = computed(() => store.projects.find((project) => project.id === selectedProjectId.value));
-const pendingEvidence = computed(
-  () => current.value?.evidence.filter((item) => ['rejected', 'resubmit', 'missing'].includes(item.status)) ?? []
-);
+const pendingEvidence = computed(() => (current.value ? store.pendingSupplements(current.value.id) : []));
 
 function submit() {
   message.value = '';
@@ -35,16 +40,15 @@ function submit() {
     error.value = errors.join('；');
     return;
   }
-  const count = store.bulkSupplement(current.value.id, selectedEvidence.value, note.value);
-  selectedEvidence.value = [];
-  note.value = '';
-  message.value = `已完成 ${count} 项证据补件，并同步到项目版本基线。`;
+  try {
+    const count = store.bulkSupplement(current.value.id, selectedEvidence.value, note.value);
+    selectedEvidence.value = [];
+    note.value = '';
+    message.value = `已完成 ${count} 项证据补件，并同步到项目版本基线。`;
+  } catch (caught) {
+    error.value = caught instanceof Error ? caught.message : '补件失败。';
+  }
 }
-
-onMounted(() => {
-  store.hydrate();
-  if (!selectedProjectId.value && projectOptions.value[0]) selectedProjectId.value = projectOptions.value[0].value;
-});
 </script>
 
 <template>
@@ -94,6 +98,9 @@ onMounted(() => {
               <span class="mt-2 block text-sm text-slate-600">{{ item.note }}</span>
               <span class="mt-2 block text-xs text-slate-500">
                 {{ item.regulationId }} · 文件 {{ item.version }} · 软件 {{ item.softwareVersion }} · {{ item.configurations.join('、') }}
+              </span>
+              <span v-if="item.staleAt || (current && item.softwareVersion !== current.softwareVersion)" class="mt-2 inline-block">
+                <UBadge color="red" variant="soft" size="sm">基线失效：重测后随本批次补件</UBadge>
               </span>
             </span>
           </label>

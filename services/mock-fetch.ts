@@ -7,7 +7,16 @@ function currentProjects(): ApprovalProject[] {
   if (typeof localStorage === 'undefined') return structuredClone(seedProjects);
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? (JSON.parse(raw) as ApprovalProject[]) : structuredClone(seedProjects);
+    if (raw) {
+      const parsed = JSON.parse(raw) as ApprovalProject[];
+      parsed.forEach((project) =>
+        project.evidence.forEach((item) => {
+          if (!item.logicalId) item.logicalId = item.id;
+        })
+      );
+      return parsed;
+    }
+    return structuredClone(seedProjects);
   } catch {
     return structuredClone(seedProjects);
   }

@@ -25,10 +25,14 @@ export function validateSubmission(project: ApprovalProject) {
   const versionMismatch = project.evidence.filter(
     (item) => item.softwareVersion !== project.softwareVersion
   );
+  const staleEvidence = project.evidence.filter((item) => item.staleAt);
+  const conflictEvidence = project.evidence.filter((item) => item.conflictGroupId);
   const coverageIssue = requiredRegulations.find((item) => item.status !== 'complete');
   const expiring = new Date(project.certificateExpiry) <= new Date('2026-12-31');
 
+  if (conflictEvidence.length) issues.push(`${new Set(conflictEvidence.map((item) => item.conflictGroupId)).size} 组证据存在在线/离线两版待复核取版`);
   if (missingEvidence.length) issues.push(`${missingEvidence.length} 项证据缺失、被拒或待补件`);
+  if (staleEvidence.length) issues.push(`${staleEvidence.length} 项证据因软件基线变更已失效，需重算补件`);
   if (versionMismatch.length) issues.push(`${versionMismatch.length} 项证据软件版本与项目基线不一致`);
   if (coverageIssue) issues.push(`法规项 ${coverageIssue.code} 尚未完整覆盖配置`);
   if (expiring) issues.push('证书有效期不足 90 天，需先确认续证安排');

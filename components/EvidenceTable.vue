@@ -4,6 +4,7 @@ import type { EvidenceItem, EvidenceStatus } from '~/types/certification';
 const props = defineProps<{
   evidence: EvidenceItem[];
   editable?: boolean;
+  baseline?: string;
 }>();
 
 const emit = defineEmits<{
@@ -17,6 +18,10 @@ const typeLabels: Record<EvidenceItem['type'], string> = {
   exemption: '豁免材料',
   certificate: '证书'
 };
+
+function versionMismatch(item: EvidenceItem) {
+  return !!props.baseline && item.softwareVersion !== props.baseline;
+}
 </script>
 
 <template>
@@ -34,27 +39,34 @@ const typeLabels: Record<EvidenceItem['type'], string> = {
         </tr>
       </thead>
       <tbody>
-        <tr v-for="item in evidence" :key="item.id">
+        <tr v-for="item in evidence" :key="item.id" :class="item.conflictGroupId ? 'bg-amber-50/60' : ''">
           <td>
             <p class="font-medium">{{ item.name }}</p>
             <p class="mt-1 text-xs text-slate-500">{{ typeLabels[item.type] }} · {{ item.id }}</p>
+            <div class="mt-1 flex flex-wrap gap-1">
+              <UBadge v-if="item.conflictGroupId" color="amber" variant="soft" size="sm">
+                两版待复核 · {{ item.conflictSide === 'online' ? '在线版' : '离线版' }}
+              </UBadge>
+              <UBadge v-if="item.staleAt || versionMismatch(item)" color="red" variant="soft" size="sm">基线失效待补件</UBadge>
+            </div>
           </td>
           <td class="font-mono text-sm">{{ item.regulationId }}</td>
           <td>
             <p>文件 {{ item.version }}</p>
-            <p class="mt-1 text-xs" :class="item.softwareVersion !== item.softwareVersion ? 'text-red-700' : 'text-slate-500'">
+            <p class="mt-1 text-xs" :class="versionMismatch(item) ? 'font-medium text-red-700' : 'text-slate-500'">
               软件 {{ item.softwareVersion }}
             </p>
           </td>
           <td class="max-w-[260px] text-sm">{{ item.configurations.join('、') }}</td>
           <td><StatusBadge :status="item.status" /></td>
-          <td class="max-w-[320px] text-sm text-slate-600">{{ item.note }}</td>
+          <td class="max-w-[320px] text-sm text-slate-600">{{ item.staleReason || item.note }}</td>
           <td v-if="editable">
             <div class="flex min-w-[180px] flex-wrap gap-2">
-              <UButton size="xs" color="green" variant="soft" @click="emit('update', item.id, 'accepted')">接受</UButton>
-              <UButton size="xs" color="red" variant="soft" @click="emit('update', item.id, 'rejected')">拒绝</UButton>
-              <UButton size="xs" color="amber" variant="soft" @click="emit('update', item.id, 'resubmit')">重新抽样</UButton>
+              <UButton size="xs" color="green" variant="soft" :disabled="!!item.conflictGroupId" @click="emit('update', item.id, 'accepted')">接受</UButton>
+              <UButton size="xs" color="red" variant="soft" :disabled="!!item.conflictGroupId" @click="emit('update', item.id, 'rejected')">拒绝</UButton>
+              <UButton size="xs" color="amber" variant="soft" :disabled="!!item.conflictGroupId" @click="emit('update', item.id, 'resubmit')">重新抽样</UButton>
             </div>
+            <p v-if="item.conflictGroupId" class="mt-1 text-xs text-amber-700">请先在复核批次中取版</p>
           </td>
         </tr>
         <tr v-if="!evidence.length">

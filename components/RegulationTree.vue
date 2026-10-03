@@ -68,6 +68,12 @@ function linkedEvidence(id: string) {
               <p class="mt-1 text-xs text-slate-500">
                 文件版本 {{ item.version }} · 软件 {{ item.softwareVersion }} · {{ item.configurations.join('、') }}
               </p>
+              <div v-if="item.conflictGroupId || item.staleAt" class="mt-1 flex flex-wrap gap-1">
+                <UBadge v-if="item.conflictGroupId" color="amber" variant="soft" size="sm">
+                  两版待复核·{{ item.conflictSide === 'online' ? '在线' : '离线' }}
+                </UBadge>
+                <UBadge v-if="item.staleAt" color="red" variant="soft" size="sm">基线失效</UBadge>
+              </div>
             </div>
             <StatusBadge :status="item.status" />
           </div>

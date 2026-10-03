@@ -43,9 +43,11 @@ const { data, isPending, isError, refetch } = useQuery({
 const projectRows = computed(() => data.value ?? []);
 const openCount = computed(() => store.projects.filter((project) => !['approved', 'rejected'].includes(project.status)).length);
 const supplementCount = computed(() => store.projects.filter((project) => project.status === 'supplement_required').length);
+const conflictReviewCount = computed(() => store.batches.filter((batch) => batch.status === 'awaiting_review').length);
+const checkedOutCount = computed(() => store.batches.filter((batch) => batch.status === 'checked_out').length);
 const versionConflictCount = computed(() =>
   store.projects.filter((project) =>
-    project.evidence.some((evidence) => evidence.softwareVersion !== project.softwareVersion)
+    project.evidence.some((evidence) => evidence.softwareVersion !== project.softwareVersion || !!evidence.staleAt)
   ).length
 );
 const expiringCount = computed(() =>
@@ -53,6 +55,8 @@ const expiringCount = computed(() =>
 );
 
 function riskLabel(project: (typeof projectRows.value)[number]) {
+  if (store.activeBatchForProject(project.id)?.status === 'awaiting_review') return '两版证据待复核';
+  if (project.evidence.some((item) => item.staleAt)) return '基线变更证据失效';
   if (project.evidence.some((item) => item.softwareVersion !== project.softwareVersion)) return '软件版本冲突';
   if (project.regulations.some((item) => item.status !== 'complete')) return '法规覆盖缺失';
   if (new Date(project.certificateExpiry) <= new Date('2026-12-31')) return '证书临近到期';
@@ -77,7 +81,10 @@ onMounted(() => {
       <h1 class="mt-1 text-2xl font-semibold">认证证据包工作台</h1>
       <p class="mt-2 text-sm text-slate-600">按车型、配置、法规项目和维护版本组织证据，控制缺失、错配与补件闭环。</p>
     </div>
-    <UButton to="/projects/new" color="primary" icon="i-heroicons-plus">新建认证项目</UButton>
+    <div class="flex flex-wrap gap-2">
+      <UButton to="/batches" color="gray" icon="i-heroicons-folder">复核批次（{{ checkedOutCount }} 离线 / {{ conflictReviewCount }} 待取版）</UButton>
+      <UButton to="/projects/new" color="primary" icon="i-heroicons-plus">新建认证项目</UButton>
+    </div>
   </div>
 
   <section class="workspace-grid mb-6">

@@ -3,6 +3,7 @@ const route = useRoute();
 
 const navItems = [
   { to: '/', label: '认证项目' },
+  { to: '/batches', label: '复核批次' },
   { to: '/regulations', label: '法规项目树' },
   { to: '/supplements', label: '批量补件' },
   { to: '/reminders', label: '到期提醒' },
@@ -10,7 +11,7 @@ const navItems = [
 ];
 
 function active(path: string) {
-  if (path === '/') return route.path === '/' || route.path.startsWith('/projects');
+  if (path === '/') return route.path === '/' || (route.path.startsWith('/projects') && !route.path.startsWith('/projects/new'));
   return route.path.startsWith(path);
 }
 </script>

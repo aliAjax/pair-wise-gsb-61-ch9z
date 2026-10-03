@@ -6,7 +6,10 @@ import { useCertificationStore } from '~/stores/certification';
 const route = useRoute();
 const store = useCertificationStore();
 const id = String(route.params.id);
+onMounted(() => store.hydrate());
 const project = computed(() => store.projectById(id));
+const activeBatch = computed(() => (project.value ? store.activeBatchForProject(project.value.id) : undefined));
+const frozen = computed(() => project.value?.status === 'approved');
 const activeTab = ref(0);
 const message = ref('');
 const error = ref('');
@@ -71,6 +74,7 @@ const transitionOptions = computed(() => {
 });
 
 const blockingIssues = computed(() => (project.value ? validateSubmission(project.value) : []));
+const supplementItems = computed(() => (project.value ? store.pendingSupplements(project.value.id) : []));
 
 function saveEditor() {
   message.value = '';
@@ -84,9 +88,13 @@ function saveEditor() {
     error.value = '请填写本次变更原因';
     return;
   }
-  store.updateProject(id, { ...editor }, editReason.value);
-  editReason.value = '';
-  message.value = '项目资料与版本影响已保存。';
+  try {
+    store.updateProject(id, { ...editor }, editReason.value);
+    editReason.value = '';
+    message.value = '项目资料与版本影响已保存。';
+  } catch (caught) {
+    error.value = caught instanceof Error ? caught.message : '保存失败。';
+  }
 }
 
 function transition() {
@@ -101,15 +109,23 @@ function transition() {
     error.value = `存在阻断项，不能批准：${blockingIssues.value.join('；')}`;
     return;
   }
-  store.transition(id, transitionStatus.value, project.value.reviewer === '待分派' ? '认证机构审阅人' : project.value.reviewer, transitionReason.value);
-  transitionReason.value = '';
-  message.value = '审批状态已更新。';
+  try {
+    store.transition(id, transitionStatus.value, project.value.reviewer === '待分派' ? '认证机构审阅人' : project.value.reviewer, transitionReason.value);
+    transitionReason.value = '';
+    message.value = '审批状态已更新。';
+  } catch (caught) {
+    error.value = caught instanceof Error ? caught.message : '流转失败。';
+  }
 }
 
 function updateEvidence(evidenceId: string, status: EvidenceStatus) {
   if (!project.value) return;
-  store.updateEvidence(id, evidenceId, status, `审阅人将证据标记为${status}`);
-  message.value = '证据审阅状态已更新。';
+  try {
+    store.updateEvidence(id, evidenceId, status, `审阅人将证据标记为${status}`);
+    message.value = '证据审阅状态已更新。';
+  } catch (caught) {
+    error.value = caught instanceof Error ? caught.message : '更新失败。';
+  }
 }
 
 function bulkSupplement() {
@@ -119,10 +135,14 @@ function bulkSupplement() {
     error.value = errors.join('；');
     return;
   }
-  const count = store.bulkSupplement(id, selectedEvidence.value, supplementNote.value);
-  selectedEvidence.value = [];
-  supplementNote.value = '';
-  message.value = `已将 ${count} 项证据更新至当前软件基线并重新提交。`;
+  try {
+    const count = store.bulkSupplement(id, selectedEvidence.value, supplementNote.value);
+    selectedEvidence.value = [];
+    supplementNote.value = '';
+    message.value = `已将 ${count} 项证据更新至当前软件基线并重新提交。`;
+  } catch (caught) {
+    error.value = caught instanceof Error ? caught.message : '补件失败。';
+  }
 }
 </script>
 
@@ -143,6 +163,9 @@ function bulkSupplement() {
         <p class="mt-1 text-sm text-slate-500">
           {{ project.modelCode }} · {{ project.vehicleType }} · {{ project.configuration }} · {{ project.maintenanceVersion }} / SW {{ project.softwareVersion }}
         </p>
+        <div class="mt-3" v-if="!activeBatch && !frozen">
+          <UButton size="xs" color="gray" variant="soft" icon="i-heroicons-folder-arrow-down" to="/batches">检出离线复核批次</UButton>
+        </div>
       </div>
       <div class="min-w-[240px] border border-slate-200 bg-white p-4">
         <div class="flex items-center justify-between text-sm">
@@ -156,6 +179,29 @@ function bulkSupplement() {
 
     <div v-if="message" class="mb-4 border border-green-200 bg-green-50 p-3 text-sm text-green-900">{{ message }}</div>
     <div v-if="error" class="mb-4 border border-red-200 bg-red-50 p-3 text-sm text-red-900">{{ error }}</div>
+
+    <div v-if="frozen" class="mb-5 border-2 border-slate-300 bg-slate-100 p-4">
+      <p class="text-sm font-semibold text-slate-800">项目已冻结（approved）：只读</p>
+      <p class="mt-1 text-sm text-slate-600">状态、软件基线、证据与补件均不可修改；离线复核包回网也不会覆盖本项目。</p>
+    </div>
+
+    <div v-if="activeBatch" class="mb-5 border border-teal-300 bg-teal-50 p-4">
+      <div class="flex flex-wrap items-center justify-between gap-3">
+
+        <div>
+          <p class="text-sm font-semibold text-teal-950">
+            在途复核批次 {{ activeBatch.id }}：{{ activeBatch.status === 'checked_out' ? '离线复核中' : '存在两版证据待复核' }}
+          </p>
+          <p class="mt-1 text-xs text-teal-800">
+            检出基线 SW {{ activeBatch.base.project.softwareVersion }} ·
+            离线工作集 SW {{ activeBatch.offline.project.softwareVersion }} ·
+            待取版冲突 {{ activeBatch.unresolvedConflictGroupIds.length }} 组
+          </p>
+        </div>
+        <UButton color="primary" size="sm" :to="`/batches/${activeBatch.id}`">打开复核批次</UButton>
+      </div>
+    </div>
+
     <div v-if="blockingIssues.length" class="mb-5 border border-amber-200 bg-amber-50 p-4">
       <p class="text-sm font-semibold text-amber-950">批准前阻断项</p>
       <ul class="mt-2 list-inside list-disc space-y-1 text-sm text-amber-900">
@@ -182,7 +228,7 @@ function bulkSupplement() {
           <UFormGroup label="认证机构"><UInput v-model="editor.agency" /></UFormGroup>
           <UFormGroup label="变更原因"><UInput v-model="editReason" placeholder="说明变更和影响范围" /></UFormGroup>
           <div class="md:col-span-2 xl:col-span-3">
-            <UButton type="submit" color="primary">保存并生成版本</UButton>
+            <UButton type="submit" color="primary" :disabled="frozen">保存并生成版本</UButton>
           </div>
         </form>
       </div>
@@ -197,7 +243,7 @@ function bulkSupplement() {
           <UFormGroup label="流转依据">
             <UTextarea v-model="transitionReason" :rows="3" placeholder="记录接受、拒绝或补件依据" />
           </UFormGroup>
-          <UButton type="submit" color="primary" class="w-full justify-center">提交审批流转</UButton>
+          <UButton type="submit" color="primary" class="w-full justify-center" :disabled="frozen">提交审批流转</UButton>
         </form>
       </div>
     </section>
@@ -209,7 +255,7 @@ function bulkSupplement() {
         <h2 class="font-semibold">证据文件审阅</h2>
         <p class="mt-1 text-xs text-slate-500">逐项接受、拒绝或要求重新抽样。</p>
       </div>
-      <EvidenceTable :evidence="project.evidence" editable @update="updateEvidence" />
+      <EvidenceTable :evidence="project.evidence" :editable="!frozen" :baseline="project.softwareVersion" @update="updateEvidence" />
     </section>
 
     <section v-else-if="activeTab === 1">
@@ -247,23 +293,26 @@ function bulkSupplement() {
         <p class="mt-1 text-xs text-slate-500">将缺失、被拒或待重交证据更新到当前软件基线。</p>
         <form class="mt-4 space-y-4" @submit.prevent="bulkSupplement">
           <label
-            v-for="item in project.evidence.filter((evidence) => ['rejected', 'resubmit', 'missing'].includes(evidence.status))"
+            v-for="item in supplementItems"
             :key="item.id"
             class="flex gap-3 border border-slate-200 p-3"
           >
-            <input v-model="selectedEvidence" type="checkbox" :value="item.id" class="mt-1" />
+            <input v-model="selectedEvidence" type="checkbox" :value="item.id" class="mt-1" :disabled="frozen" />
             <span>
               <span class="block text-sm font-medium">{{ item.name }}</span>
               <span class="mt-1 block text-xs text-slate-500">{{ item.id }} · 当前 SW {{ item.softwareVersion }}</span>
+              <span v-if="item.staleAt || item.softwareVersion !== project.softwareVersion" class="mt-1 block text-xs text-amber-700">
+                基线已变更，证据失效待重算补件
+              </span>
             </span>
           </label>
-          <p v-if="!project.evidence.some((evidence) => ['rejected', 'resubmit', 'missing'].includes(evidence.status))" class="text-sm text-slate-500">
+          <p v-if="!supplementItems.length" class="text-sm text-slate-500">
             当前没有待补件证据。
           </p>
           <UFormGroup label="补件说明">
             <UTextarea v-model="supplementNote" :rows="3" placeholder="说明已完成的测试、配置覆盖和版本更新" />
           </UFormGroup>
-          <UButton type="submit" color="primary" class="w-full justify-center">批量更新并重新提交</UButton>
+          <UButton type="submit" color="primary" class="w-full justify-center" :disabled="frozen">批量更新并重新提交</UButton>
         </form>
       </div>
     </section>
