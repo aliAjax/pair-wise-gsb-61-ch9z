@@ -1,12 +1,17 @@
 <script setup lang="ts">
 import type { EvidenceStatus, ProjectInput, ProjectStatus } from '~/types/certification';
 import { validateEvidenceUpgrade, validateProjectInput, validateSubmission } from '~/services/validators';
+import { isFrozenProject, liveEvidence } from '~/services/review-batch';
 import { useCertificationStore } from '~/stores/certification';
 
 const route = useRoute();
 const store = useCertificationStore();
+onMounted(() => store.hydrate());
 const id = String(route.params.id);
 const project = computed(() => store.projectById(id));
+const frozen = computed(() => (project.value ? isFrozenProject(project.value) : false));
+const liveRows = computed(() => (project.value ? liveEvidence(project.value) : []));
+const pendingRows = computed(() => liveRows.value.filter((item) => item.pendingReview || item.invalidated));
 const activeTab = ref(0);
 const message = ref('');
 const error = ref('');
@@ -75,6 +80,10 @@ const blockingIssues = computed(() => (project.value ? validateSubmission(projec
 function saveEditor() {
   message.value = '';
   error.value = '';
+  if (frozen.value) {
+    error.value = '该项目已批准冻结，项目资料只读，不能修改。';
+    return;
+  }
   const errors = validateProjectInput(editor);
   if (Object.keys(errors).length) {
     error.value = Object.values(errors)[0] ?? '项目资料校验失败';
@@ -84,15 +93,20 @@ function saveEditor() {
     error.value = '请填写本次变更原因';
     return;
   }
-  store.updateProject(id, { ...editor }, editReason.value);
+  const ok = store.updateProject(id, { ...editor }, editReason.value);
+  if (!ok) return;
   editReason.value = '';
-  message.value = '项目资料与版本影响已保存。';
+  message.value = '项目资料已写入新复核批次；如软件基线变化，受影响证据已失效重算。';
 }
 
 function transition() {
   if (!project.value) return;
   message.value = '';
   error.value = '';
+  if (frozen.value) {
+    error.value = '冻结项目不允许审批流转。';
+    return;
+  }
   if (!transitionReason.value.trim()) {
     error.value = '请填写审批流转依据';
     return;
@@ -101,15 +115,16 @@ function transition() {
     error.value = `存在阻断项，不能批准：${blockingIssues.value.join('；')}`;
     return;
   }
-  store.transition(id, transitionStatus.value, project.value.reviewer === '待分派' ? '认证机构审阅人' : project.value.reviewer, transitionReason.value);
+  const ok = store.transition(id, transitionStatus.value, project.value.reviewer === '待分派' ? '认证机构审阅人' : project.value.reviewer, transitionReason.value);
+  if (!ok) return;
   transitionReason.value = '';
-  message.value = '审批状态已更新。';
+  message.value = '审批状态已写入新复核批次。';
 }
 
 function updateEvidence(evidenceId: string, status: EvidenceStatus) {
   if (!project.value) return;
-  store.updateEvidence(id, evidenceId, status, `审阅人将证据标记为${status}`);
-  message.value = '证据审阅状态已更新。';
+  const ok = store.updateEvidence(id, evidenceId, status, `审阅人将证据标记为${status}`);
+  if (ok) message.value = '证据审阅已写入复核批次。';
 }
 
 function bulkSupplement() {
@@ -120,9 +135,10 @@ function bulkSupplement() {
     return;
   }
   const count = store.bulkSupplement(id, selectedEvidence.value, supplementNote.value);
+  if (!count) return;
   selectedEvidence.value = [];
   supplementNote.value = '';
-  message.value = `已将 ${count} 项证据更新至当前软件基线并重新提交。`;
+  message.value = `已将 ${count} 项证据更新至当前软件基线并重新提交，法规覆盖随之重算。`;
 }
 </script>
 
@@ -132,12 +148,14 @@ function bulkSupplement() {
   </div>
 
   <template v-else>
+    <BatchBanner />
     <div class="mb-6 flex flex-wrap items-start justify-between gap-4">
       <div>
         <NuxtLink to="/" class="text-sm text-teal-700 hover:underline">返回认证项目</NuxtLink>
         <div class="mt-3 flex flex-wrap items-center gap-3">
           <h1 class="text-2xl font-semibold">{{ project.id }}</h1>
           <StatusBadge :status="project.status" />
+          <UBadge v-if="frozen" color="green" variant="solid">已冻结 · 只读</UBadge>
         </div>
         <p class="mt-2 text-lg font-medium">{{ project.name }}</p>
         <p class="mt-1 text-sm text-slate-500">
@@ -156,6 +174,21 @@ function bulkSupplement() {
 
     <div v-if="message" class="mb-4 border border-green-200 bg-green-50 p-3 text-sm text-green-900">{{ message }}</div>
     <div v-if="error" class="mb-4 border border-red-200 bg-red-50 p-3 text-sm text-red-900">{{ error }}</div>
+    <div v-if="frozen" class="mb-4 border border-green-200 bg-green-50 p-3 text-sm text-green-900">
+      该认证项目已批准并冻结：项目基线、证据、法规覆盖与状态均为只读。离线复核包对冻结项目的改动在回网时会被拒绝并保留在线冻结版本。
+    </div>
+    <div v-if="pendingRows.length" class="mb-4 border border-amber-200 bg-amber-50 p-4">
+      <p class="text-sm font-semibold text-amber-950">{{ pendingRows.length }} 项证据待复核或已失效</p>
+      <ul class="mt-2 list-inside list-disc space-y-1 text-sm text-amber-900">
+        <li v-for="row in pendingRows" :key="row.id">
+          {{ row.name }}：
+          <template v-if="row.conflictGroup">离线包与在线窗口都改过，保留双版本待裁定</template>
+          <template v-else-if="row.invalidated">软件基线变更导致旧版本失效，需重新测试/补件</template>
+          <template v-else>含离线改动，待人工复核</template>
+        </li>
+      </ul>
+      <UButton to="/review-batches" size="xs" color="amber" class="mt-3">前往复核批次台处理</UButton>
+    </div>
     <div v-if="blockingIssues.length" class="mb-5 border border-amber-200 bg-amber-50 p-4">
       <p class="text-sm font-semibold text-amber-950">批准前阻断项</p>
       <ul class="mt-2 list-inside list-disc space-y-1 text-sm text-amber-900">
@@ -172,17 +205,18 @@ function bulkSupplement() {
           </div>
         </div>
         <form class="grid gap-4 md:grid-cols-2 xl:grid-cols-3" @submit.prevent="saveEditor">
-          <UFormGroup label="项目名称"><UInput v-model="editor.name" /></UFormGroup>
-          <UFormGroup label="车型代码"><UInput v-model="editor.modelCode" /></UFormGroup>
-          <UFormGroup label="配置"><UInput v-model="editor.configuration" /></UFormGroup>
-          <UFormGroup label="维护版本"><UInput v-model="editor.maintenanceVersion" /></UFormGroup>
-          <UFormGroup label="软件版本"><UInput v-model="editor.softwareVersion" /></UFormGroup>
-          <UFormGroup label="证书有效期"><UInput v-model="editor.certificateExpiry" type="date" /></UFormGroup>
-          <UFormGroup label="申请主体"><UInput v-model="editor.applicant" /></UFormGroup>
-          <UFormGroup label="认证机构"><UInput v-model="editor.agency" /></UFormGroup>
-          <UFormGroup label="变更原因"><UInput v-model="editReason" placeholder="说明变更和影响范围" /></UFormGroup>
+          <UFormGroup label="项目名称"><UInput v-model="editor.name" :disabled="frozen" /></UFormGroup>
+          <UFormGroup label="车型代码"><UInput v-model="editor.modelCode" :disabled="frozen" /></UFormGroup>
+          <UFormGroup label="配置"><UInput v-model="editor.configuration" :disabled="frozen" /></UFormGroup>
+          <UFormGroup label="维护版本"><UInput v-model="editor.maintenanceVersion" :disabled="frozen" /></UFormGroup>
+          <UFormGroup label="软件版本"><UInput v-model="editor.softwareVersion" :disabled="frozen" /></UFormGroup>
+          <UFormGroup label="证书有效期"><UInput v-model="editor.certificateExpiry" type="date" :disabled="frozen" /></UFormGroup>
+          <UFormGroup label="申请主体"><UInput v-model="editor.applicant" :disabled="frozen" /></UFormGroup>
+          <UFormGroup label="认证机构"><UInput v-model="editor.agency" :disabled="frozen" /></UFormGroup>
+          <UFormGroup label="变更原因"><UInput v-model="editReason" :disabled="frozen" placeholder="说明变更和影响范围" /></UFormGroup>
           <div class="md:col-span-2 xl:col-span-3">
-            <UButton type="submit" color="primary">保存并生成版本</UButton>
+            <UButton type="submit" color="primary" :disabled="frozen">保存并生成版本</UButton>
+            <span v-if="frozen" class="ml-3 text-xs text-slate-400">冻结项目不可生成新版本</span>
           </div>
         </form>
       </div>
@@ -192,12 +226,13 @@ function bulkSupplement() {
         <p class="mt-1 text-xs text-slate-500">批准前系统检查缺失证据、版本错配和配置覆盖。</p>
         <form class="mt-4 space-y-4" @submit.prevent="transition">
           <UFormGroup label="目标状态">
-            <USelect v-model="transitionStatus" :options="transitionOptions" />
+            <USelect v-model="transitionStatus" :options="transitionOptions" :disabled="frozen" />
           </UFormGroup>
           <UFormGroup label="流转依据">
-            <UTextarea v-model="transitionReason" :rows="3" placeholder="记录接受、拒绝或补件依据" />
+            <UTextarea v-model="transitionReason" :rows="3" :disabled="frozen" placeholder="记录接受、拒绝或补件依据" />
           </UFormGroup>
-          <UButton type="submit" color="primary" class="w-full justify-center">提交审批流转</UButton>
+          <UButton type="submit" color="primary" class="w-full justify-center" :disabled="frozen">提交审批流转</UButton>
+          <p v-if="frozen" class="text-xs text-slate-400">冻结项目不再发生状态流转。</p>
         </form>
       </div>
     </section>
@@ -209,7 +244,7 @@ function bulkSupplement() {
         <h2 class="font-semibold">证据文件审阅</h2>
         <p class="mt-1 text-xs text-slate-500">逐项接受、拒绝或要求重新抽样。</p>
       </div>
-      <EvidenceTable :evidence="project.evidence" editable @update="updateEvidence" />
+      <EvidenceTable :evidence="liveRows" editable :readonly="frozen" @update="updateEvidence" />
     </section>
 
     <section v-else-if="activeTab === 1">
@@ -217,7 +252,7 @@ function bulkSupplement() {
         <h2 class="font-semibold">法规项目覆盖</h2>
         <p class="mt-1 text-sm text-slate-500">按法规项展开证据、配置覆盖和阻断问题。</p>
       </div>
-      <RegulationTree :regulations="project.regulations" :evidence="project.evidence" />
+      <RegulationTree :regulations="project.regulations" :evidence="liveRows" />
     </section>
 
     <section v-else-if="activeTab === 2" class="grid gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)]">
@@ -247,23 +282,27 @@ function bulkSupplement() {
         <p class="mt-1 text-xs text-slate-500">将缺失、被拒或待重交证据更新到当前软件基线。</p>
         <form class="mt-4 space-y-4" @submit.prevent="bulkSupplement">
           <label
-            v-for="item in project.evidence.filter((evidence) => ['rejected', 'resubmit', 'missing'].includes(evidence.status))"
+            v-for="item in liveRows.filter((evidence) => evidence.invalidated || ['rejected', 'resubmit', 'missing'].includes(evidence.status) || evidence.pendingReview)"
             :key="item.id"
             class="flex gap-3 border border-slate-200 p-3"
           >
-            <input v-model="selectedEvidence" type="checkbox" :value="item.id" class="mt-1" />
+            <input v-model="selectedEvidence" type="checkbox" :value="item.id" class="mt-1" :disabled="frozen" />
             <span>
               <span class="block text-sm font-medium">{{ item.name }}</span>
-              <span class="mt-1 block text-xs text-slate-500">{{ item.id }} · 当前 SW {{ item.softwareVersion }}</span>
+              <span class="mt-1 block text-xs text-slate-500">
+                {{ item.id }} · 当前 SW {{ item.softwareVersion }}
+                <em v-if="item.invalidated" class="text-red-700">（已失效，重算至基线）</em>
+              </span>
             </span>
           </label>
-          <p v-if="!project.evidence.some((evidence) => ['rejected', 'resubmit', 'missing'].includes(evidence.status))" class="text-sm text-slate-500">
+          <p v-if="!liveRows.some((evidence) => evidence.invalidated || ['rejected', 'resubmit', 'missing'].includes(evidence.status) || evidence.pendingReview)" class="text-sm text-slate-500">
             当前没有待补件证据。
           </p>
           <UFormGroup label="补件说明">
-            <UTextarea v-model="supplementNote" :rows="3" placeholder="说明已完成的测试、配置覆盖和版本更新" />
+            <UTextarea v-model="supplementNote" :rows="3" :disabled="frozen" placeholder="说明已完成的测试、配置覆盖和版本更新" />
           </UFormGroup>
-          <UButton type="submit" color="primary" class="w-full justify-center">批量更新并重新提交</UButton>
+          <UButton type="submit" color="primary" class="w-full justify-center" :disabled="frozen">批量更新并重新提交</UButton>
+          <p v-if="frozen" class="text-xs text-slate-400">冻结项目不需要补件。</p>
         </form>
       </div>
     </section>

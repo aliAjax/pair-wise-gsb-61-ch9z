@@ -4,6 +4,7 @@ import { validateProjectInput } from '~/services/validators';
 import { useCertificationStore } from '~/stores/certification';
 
 const store = useCertificationStore();
+onMounted(() => store.hydrate());
 const router = useRouter();
 const form = reactive<ProjectInput>({
   name: '',
@@ -18,6 +19,7 @@ const form = reactive<ProjectInput>({
 });
 const errors = reactive<Partial<Record<keyof ProjectInput, string>>>({});
 const submitted = ref(false);
+const writeError = ref('');
 
 const vehicleTypeOptions = [
   { label: 'M1 乘用车', value: 'M1' },
@@ -32,9 +34,14 @@ const agencyOptions = [
 
 function submit() {
   submitted.value = true;
+  writeError.value = '';
   Object.assign(errors, validateProjectInput(form));
   if (Object.keys(errors).length) return;
   const id = store.createProject({ ...form });
+  if (!id) {
+    writeError.value = '批次写入失败，新项目保留在待恢复批次中，按完整批次重试后再进入。';
+    return;
+  }
   void router.push(`/projects/${id}`);
 }
 </script>
@@ -45,6 +52,9 @@ function submit() {
     <h1 class="mt-3 text-2xl font-semibold">新建认证项目</h1>
     <p class="mt-1 text-sm text-slate-600">建立车型、配置和版本基线，随后关联法规项目与证据文件。</p>
   </div>
+
+  <BatchBanner class="mt-5" />
+  <div v-if="writeError" class="mb-4 border border-red-200 bg-red-50 p-3 text-sm text-red-900">{{ writeError }}</div>
 
   <UCard>
     <form class="grid gap-5 md:grid-cols-2 xl:grid-cols-3" @submit.prevent="submit">

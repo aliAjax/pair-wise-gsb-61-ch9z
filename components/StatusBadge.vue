@@ -10,7 +10,7 @@ const labels: Record<ProjectStatus | EvidenceStatus, string> = {
   submitted: '已提交',
   under_review: '审阅中',
   supplement_required: '待补件',
-  approved: '已批准',
+  approved: '已批准（冻结）',
   rejected: '已拒绝',
   missing: '缺失',
   accepted: '已接受',

@@ -15,7 +15,7 @@ function toggle(id: string) {
 }
 
 function linkedEvidence(id: string) {
-  return props.evidence.filter((item) => item.regulationId === id);
+  return props.evidence.filter((item) => item.regulationId === id && !item.superseded);
 }
 </script>
 
@@ -64,9 +64,16 @@ function linkedEvidence(id: string) {
             class="flex flex-wrap items-center justify-between gap-3 border border-slate-200 bg-white px-3 py-3"
           >
             <div>
-              <p class="text-sm font-medium">{{ item.name }}</p>
+              <p class="text-sm font-medium">
+                {{ item.name }}
+                <UBadge v-if="item.origin === 'offline'" color="violet" variant="soft" size="sm" class="ml-1">离线</UBadge>
+              </p>
               <p class="mt-1 text-xs text-slate-500">
                 文件版本 {{ item.version }} · 软件 {{ item.softwareVersion }} · {{ item.configurations.join('、') }}
+              </p>
+              <p class="mt-1 text-xs">
+                <UBadge v-if="item.pendingReview" color="amber" variant="solid" size="sm">待复核</UBadge>
+                <UBadge v-if="item.invalidated" color="red" variant="solid" size="sm" class="ml-1">基线变更已失效</UBadge>
               </p>
             </div>
             <StatusBadge :status="item.status" />

@@ -1,3 +1,4 @@
+import { liveEvidence } from './review-batch';
 import type { ApprovalProject, ProjectInput } from '~/types/certification';
 
 export function validateProjectInput(input: ProjectInput) {
@@ -16,19 +17,21 @@ export function validateProjectInput(input: ProjectInput) {
   return errors;
 }
 
+/** 提交包校验只认同一份有效批次：失效/待复核证据均为阻断项 */
 export function validateSubmission(project: ApprovalProject) {
   const issues: string[] = [];
   const requiredRegulations = project.regulations.filter((item) => item.required);
-  const missingEvidence = project.evidence.filter((item) =>
-    ['missing', 'rejected', 'resubmit'].includes(item.status)
-  );
-  const versionMismatch = project.evidence.filter(
-    (item) => item.softwareVersion !== project.softwareVersion
-  );
+  const evidence = liveEvidence(project);
+  const missingEvidence = evidence.filter((item) => ['missing', 'rejected', 'resubmit'].includes(item.status));
+  const invalidated = evidence.filter((item) => item.invalidated);
+  const pendingReview = evidence.filter((item) => item.pendingReview);
+  const versionMismatch = evidence.filter((item) => item.softwareVersion !== project.softwareVersion);
   const coverageIssue = requiredRegulations.find((item) => item.status !== 'complete');
   const expiring = new Date(project.certificateExpiry) <= new Date('2026-12-31');
 
   if (missingEvidence.length) issues.push(`${missingEvidence.length} 项证据缺失、被拒或待补件`);
+  if (invalidated.length) issues.push(`${invalidated.length} 项证据因软件基线变更已失效，需重新测试/补件`);
+  if (pendingReview.length) issues.push(`${pendingReview.length} 项证据存在离线改动或双版本，待人工复核裁定`);
   if (versionMismatch.length) issues.push(`${versionMismatch.length} 项证据软件版本与项目基线不一致`);
   if (coverageIssue) issues.push(`法规项 ${coverageIssue.code} 尚未完整覆盖配置`);
   if (expiring) issues.push('证书有效期不足 90 天，需先确认续证安排');
@@ -40,7 +43,7 @@ export function validateEvidenceUpgrade(project: ApprovalProject, evidenceIds: s
   const errors: string[] = [];
   if (!evidenceIds.length) errors.push('至少选择一项待补件证据');
   if (note.trim().length < 6) errors.push('批量补件说明至少 6 个字符');
-  const selected = project.evidence.filter((item) => evidenceIds.includes(item.id));
-  if (!selected.length) errors.push('所选证据不属于当前项目');
+  const selectable = new Set(liveEvidence(project).map((item) => item.id));
+  if (evidenceIds.some((id) => !selectable.has(id))) errors.push('所选证据不属于当前有效批次');
   return errors;
 }

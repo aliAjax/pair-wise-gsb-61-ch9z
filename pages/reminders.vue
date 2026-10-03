@@ -1,7 +1,9 @@
 <script setup lang="ts">
+import { liveEvidence } from '~/services/review-batch';
 import { useCertificationStore } from '~/stores/certification';
 
 const store = useCertificationStore();
+onMounted(() => store.hydrate());
 const today = new Date('2026-09-29');
 
 const reminders = computed(() =>
@@ -15,7 +17,7 @@ const reminders = computed(() =>
           status: project.status,
           impact: `${project.configuration} 全部配置`
         },
-        ...project.evidence
+        ...liveEvidence(project)
           .filter((evidence) => evidence.expiryDate)
           .map((evidence) => ({
             project,
@@ -41,6 +43,8 @@ const reminders = computed(() =>
     <h1 class="text-2xl font-semibold">证书与证据到期提醒</h1>
     <p class="mt-1 text-sm text-slate-600">按 180 天窗口检查证书、测试报告和豁免材料，明确影响配置与续证动作。</p>
   </div>
+
+  <BatchBanner class="mt-5" />
 
   <section class="border border-slate-200 bg-white">
     <div class="border-b border-slate-200 px-4 py-3">

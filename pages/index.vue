@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { useQuery, useQueryClient } from '@tanstack/vue-query';
 import { certificationApi } from '~/services/certification-api';
-import type { ProjectFilters, ProjectStatus } from '~/types/certification';
+import { liveEvidence } from '~/services/review-batch';
+import type { ProjectFilters } from '~/types/certification';
 import { useCertificationStore } from '~/stores/certification';
 
 const store = useCertificationStore();
@@ -45,7 +46,9 @@ const openCount = computed(() => store.projects.filter((project) => !['approved'
 const supplementCount = computed(() => store.projects.filter((project) => project.status === 'supplement_required').length);
 const versionConflictCount = computed(() =>
   store.projects.filter((project) =>
-    project.evidence.some((evidence) => evidence.softwareVersion !== project.softwareVersion)
+    liveEvidence(project).some(
+      (evidence) => evidence.softwareVersion !== project.softwareVersion || evidence.pendingReview || evidence.invalidated
+    )
   ).length
 );
 const expiringCount = computed(() =>
@@ -53,7 +56,11 @@ const expiringCount = computed(() =>
 );
 
 function riskLabel(project: (typeof projectRows.value)[number]) {
-  if (project.evidence.some((item) => item.softwareVersion !== project.softwareVersion)) return '软件版本冲突';
+  const evidence = liveEvidence(project);
+  if (evidence.some((item) => item.conflictGroup)) return '离线双版本待复核';
+  if (evidence.some((item) => item.invalidated)) return '软件基线变更·证据失效重算';
+  if (evidence.some((item) => item.softwareVersion !== project.softwareVersion)) return '软件版本冲突';
+  if (evidence.some((item) => item.pendingReview)) return '离线改动待复核';
   if (project.regulations.some((item) => item.status !== 'complete')) return '法规覆盖缺失';
   if (new Date(project.certificateExpiry) <= new Date('2026-12-31')) return '证书临近到期';
   return '未见阻断项';
@@ -80,6 +87,8 @@ onMounted(() => {
     <UButton to="/projects/new" color="primary" icon="i-heroicons-plus">新建认证项目</UButton>
   </div>
 
+  <BatchBanner class="mt-5" />
+
   <section class="workspace-grid mb-6">
     <div class="col-span-12 sm:col-span-6 xl:col-span-3">
       <StatTile label="开放认证项目" :value="openCount" note="草稿、审阅和补件队列" />
@@ -88,7 +97,7 @@ onMounted(() => {
       <StatTile label="待补件项目" :value="supplementCount" note="认证机构已退回要求补件" />
     </div>
     <div class="col-span-12 sm:col-span-6 xl:col-span-3">
-      <StatTile label="版本冲突" :value="versionConflictCount" note="证据软件版本与申报基线不一致" />
+      <StatTile label="版本/复核冲突" :value="versionConflictCount" note="证据版本错配、离线双版本或失效重算" />
     </div>
     <div class="col-span-12 sm:col-span-6 xl:col-span-3">
       <StatTile label="90 天内到期" :value="expiringCount" note="证书或批准文件临近失效" />
